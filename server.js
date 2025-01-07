@@ -3,12 +3,11 @@ import session from 'express-session';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
-import { WebSocketServer } from 'ws';
+import { Server } from 'socket.io';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import { Server } from 'socket.io';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -16,8 +15,7 @@ const __dirname = dirname(__filename);
 dotenv.config();
 
 const app = express();
-const server = createServer(app);
-const wss = new WebSocketServer({ server });
+const httpServer = createServer(app);
 
 // Create session middleware
 const sessionMiddleware = session({
@@ -29,6 +27,17 @@ const sessionMiddleware = session({
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     maxAge: 24 * 60 * 60 * 1000
   }
+});
+
+// Configure Socket.IO with CORS
+const io = new Server(httpServer, {
+  cors: {
+    origin: ["http://localhost:5173", "http://localhost:5174"],
+    methods: ["GET", "POST"],
+    credentials: true,
+    allowedHeaders: ["my-custom-header"]
+  },
+  transports: ['websocket', 'polling']
 });
 
 // Configure CORS for REST endpoints
@@ -90,6 +99,27 @@ app.get('/auth/user', (req, res) => {
   }
 });
 
+// Guest login route
+app.post('/auth/guest', express.json(), (req, res) => {
+  const { name } = req.body;
+  if (!name) {
+    return res.status(400).json({ error: 'Name is required' });
+  }
+
+  const guestUser = {
+    id: 'guest_' + Math.random().toString(36).substr(2, 9),
+    name: name,
+    isGuest: true
+  };
+
+  req.login(guestUser, (err) => {
+    if (err) {
+      return res.status(500).json({ error: 'Error logging in as guest' });
+    }
+    res.json({ user: guestUser });
+  });
+});
+
 app.post('/auth/logout', (req, res) => {
   req.logout((err) => {
     if (err) {
@@ -99,120 +129,138 @@ app.post('/auth/logout', (req, res) => {
   });
 });
 
-app.post('/auth/guest', express.json(), (req, res) => {
-  const { name } = req.body;
-  if (!name) {
-    return res.status(400).json({ error: 'Name is required' });
-  }
+// Store messages and reactions in memory (in production, use a database)
+let messages = [];
 
-  const guestUser = {
-    id: `guest_${Date.now()}`,
-    name: name,
-    isGuest: true
-  };
+// Socket.IO connection handling
+const connectedUsers = new Map();
 
-  req.session.passport = {
-    user: guestUser
-  };
-
-  req.session.save((err) => {
-    if (err) {
-      console.error('Error saving session:', err);
-      return res.status(500).json({ error: 'Error logging in as guest' });
-    }
-    res.json({ user: guestUser });
-  });
-});
-
-// Channel and Message Storage
-const channels = new Map([
-  ['general', {
-    id: 'general',
-    name: 'general',
-    description: 'General discussion',
-    isPrivate: false,
-    members: new Set(),
-    createdAt: new Date().toISOString(),
-  }]
-]);
-
-// Setup Socket.IO with CORS and session handling
-const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:5173",
-    methods: ["GET", "POST"],
-    credentials: true
-  }
-});
-
-// Wrap socket.io with session middleware
+// Wrap the socket middleware to use session
 io.use((socket, next) => {
-  sessionMiddleware(socket.request, socket.request.res, next);
+  sessionMiddleware(socket.request, {}, next);
+});
+
+// Socket authentication middleware
+io.use((socket, next) => {
+  if (socket.request.session && socket.request.session.passport) {
+    next();
+  } else {
+    next(new Error('Unauthorized'));
+  }
 });
 
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
-  
-  // Get user from session
-  const user = socket.request.session?.passport?.user;
-  console.log('Connected user:', user);
+  const user = socket.request.session.passport.user;
 
-  if (user) {
-    // Add user to connected users
-    connectedUsers.set(socket.id, user);
-    
-    // Join general channel by default
-    socket.join('general');
-    
-    // Notify others of new user
-    io.emit('userJoined', {
-      user,
-      onlineUsers: Array.from(connectedUsers.values())
-    });
+  // Send existing messages to newly connected users
+  socket.emit('initialize-messages', messages);
 
-    // Handle messages
-    socket.on('message', (messageData) => {
-      console.log('Received message:', messageData);
-      
-      const messageWithId = {
-        ...messageData,
-        id: Date.now().toString(),
-        timestamp: new Date().toISOString()
-      };
-      
-      // Store message
-      if (!messages[messageData.channelId]) {
-        messages[messageData.channelId] = [];
+  // Join with authenticated user info
+  connectedUsers.set(socket.id, user);
+  io.emit('userJoined', {
+    user,
+    onlineUsers: Array.from(connectedUsers.values())
+  });
+
+  socket.on('message', (messageData) => {
+    const messageWithId = {
+      ...messageData,
+      id: Date.now().toString(),
+      reactions: {},
+      thread: {
+        replies: [],
+        replyCount: 0
       }
-      messages[messageData.channelId].push(messageWithId);
+    };
+    
+    messages.push(messageWithId);
+    io.emit('message', messageWithId);
+  });
+
+  socket.on('add-reaction', ({ messageId, reaction, userId }) => {
+    const message = messages.find(m => m.id === messageId);
+    if (message) {
+      if (!message.reactions[reaction]) {
+        message.reactions[reaction] = new Set();
+      }
+      message.reactions[reaction].add(userId);
       
-      // Broadcast to everyone including sender
-      io.emit('message', messageWithId);
-    });
+      const serializableReactions = {};
+      for (const [emoji, users] of Object.entries(message.reactions)) {
+        serializableReactions[emoji] = Array.from(users);
+      }
+      
+      io.emit('reaction-updated', {
+        messageId,
+        reactions: serializableReactions
+      });
+    }
+  });
 
-    // Handle channel joining
-    socket.on('join-channel', ({ channelId }) => {
-      console.log(`User ${user.name} joining channel:`, channelId);
-      socket.join(channelId);
-    });
+  socket.on('remove-reaction', ({ messageId, reaction, userId }) => {
+    const message = messages.find(m => m.id === messageId);
+    if (message && message.reactions[reaction]) {
+      message.reactions[reaction].delete(userId);
+      
+      if (message.reactions[reaction].size === 0) {
+        delete message.reactions[reaction];
+      }
+      
+      const serializableReactions = {};
+      for (const [emoji, users] of Object.entries(message.reactions)) {
+        serializableReactions[emoji] = Array.from(users);
+      }
+      
+      io.emit('reaction-updated', {
+        messageId,
+        reactions: serializableReactions
+      });
+    }
+  });
 
-    // Handle disconnection
-    socket.on('disconnect', () => {
-      console.log('Client disconnected:', socket.id);
+  socket.on('create-thread', ({ messageId, reply }) => {
+    const message = messages.find(m => m.id === messageId);
+    if (message) {
+      if (!message.thread) {
+        message.thread = {
+          replies: [],
+          replyCount: 0
+        };
+      }
+      message.thread.replies.push(reply);
+      message.thread.replyCount++;
+      io.emit('thread-updated', { messageId, thread: message.thread });
+    }
+  });
+
+  socket.on('thread-reply', ({ messageId, content, sender, timestamp }) => {
+    const message = messages.find(m => m.id === messageId);
+    if (message && message.thread) {
+      const reply = { content, sender, timestamp };
+      message.thread.replies.push(reply);
+      message.thread.replyCount++;
+      io.emit('thread-updated', { messageId, thread: message.thread });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    const user = connectedUsers.get(socket.id);
+    if (user) {
+      console.log(`User disconnected - Socket ID: ${socket.id}, User:`, user);
       connectedUsers.delete(socket.id);
+      
       io.emit('userLeft', {
         user,
         onlineUsers: Array.from(connectedUsers.values())
       });
-    });
-  }
+    }
+  });
 });
-
-// Remove or comment out the existing WebSocket (wss) implementation
-// wss.on('connection', ...) and related functions can be removed
 
 // Start server
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Socket.IO server is ready to accept connections`);
 });

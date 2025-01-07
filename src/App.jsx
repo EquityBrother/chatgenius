@@ -1,220 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, Hash, Plus, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { io } from 'socket.io-client';
+import ThreadPanel from './components/ThreadPanel';
 
-const CreateChannelModal = ({ isOpen, onClose, onSubmit }) => {
-  const [channelName, setChannelName] = useState('');
-  const [isPrivate, setIsPrivate] = useState(false);
-  const [description, setDescription] = useState('');
-
-
-  
-  if (!isOpen) return null;
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSubmit({
-      name: channelName.toLowerCase().replace(/\s+/g, '-'),
-      isPrivate,
-      description
-    });
-    setChannelName('');
-    setIsPrivate(false);
-    setDescription('');
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg w-full max-w-md">
-        <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="text-xl font-bold">Create a Channel</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-            <X size={20} />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Channel Name
-            </label>
-            <input
-              type="text"
-              value={channelName}
-              onChange={(e) => setChannelName(e.target.value)}
-              placeholder="e.g. project-updates"
-              className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Description (optional)
-            </label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="What's this channel about?"
-              className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              id="private-channel"
-              checked={isPrivate}
-              onChange={(e) => setIsPrivate(e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <label htmlFor="private-channel" className="ml-2 block text-sm text-gray-900">
-              Make private
-            </label>
-          </div>
-
-          <div className="flex justify-end space-x-2 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-gray-700 hover:text-gray-900"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50"
-              disabled={!channelName.trim()}
-            >
-              Create Channel
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-const ChannelSidebar = ({ 
-  channels = [], 
-  directMessages = [], 
-  activeChannel = null,
-  onChannelSelect,
-  onCreateChannel,
-  onCreateDM,
-  currentUser 
-}) => {
-  const [showChannels, setShowChannels] = useState(true);
-  const [showDMs, setShowDMs] = useState(true);
-  
-  return (
-    <div className="w-64 bg-gray-800 text-gray-300 flex flex-col h-full">
-      <div className="px-4 py-3 border-b border-gray-700">
-        <h1 className="text-white font-bold text-xl">ChatGenius</h1>
-      </div>
-      
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-4 py-2">
-          <div className="flex items-center justify-between py-2 hover:text-white cursor-pointer"
-               onClick={() => setShowChannels(!showChannels)}>
-            <div className="flex items-center gap-1">
-              {showChannels ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-              <span className="text-sm font-medium">Channels</span>
-            </div>
-            <Plus 
-              size={16} 
-              className="hover:bg-gray-700 rounded p-1" 
-              onClick={(e) => {
-                e.stopPropagation();
-                onCreateChannel();
-              }}
-            />
-          </div>
-          
-          {showChannels && (
-            <div className="space-y-1 ml-2">
-              {channels.map(channel => (
-                <div
-                  key={channel.id}
-                  className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer ${
-                    activeChannel?.id === channel.id 
-                      ? 'bg-blue-600 text-white' 
-                      : 'hover:bg-gray-700'
-                  }`}
-                  onClick={() => onChannelSelect(channel)}
-                >
-                  <Hash size={16} />
-                  <span className="text-sm">{channel.name}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="px-4 py-2">
-          <div className="flex items-center justify-between py-2 hover:text-white cursor-pointer"
-               onClick={() => setShowDMs(!showDMs)}>
-            <div className="flex items-center gap-1">
-              {showDMs ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-              <span className="text-sm font-medium">Direct Messages</span>
-            </div>
-            <Plus 
-              size={16} 
-              className="hover:bg-gray-700 rounded p-1" 
-              onClick={(e) => {
-                e.stopPropagation();
-                onCreateDM();
-              }}
-            />
-          </div>
-          
-          {showDMs && (
-            <div className="space-y-1 ml-2">
-              {directMessages.map(dm => (
-                <div
-                  key={dm.id}
-                  className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer ${
-                    activeChannel?.id === dm.id 
-                      ? 'bg-blue-600 text-white' 
-                      : 'hover:bg-gray-700'
-                  }`}
-                  onClick={() => onChannelSelect(dm)}
-                >
-                  <MessageCircle size={16} />
-                  <span className="text-sm">
-                    {dm.participants
-                      .filter(p => p.id !== currentUser.id)
-                      .map(p => p.name)
-                      .join(', ')}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
+// Common emoji reactions
+const commonEmojis = ['👍', '❤️', '😂', '🎉', '🤔', '😢'];
 
 const App = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showGuestInput, setShowGuestInput] = useState(false);
-  const [guestName, setGuestName] = useState('');
-  const [channels, setChannels] = useState([
-    { id: 'general', name: 'general', description: 'General discussion' }
-  ]);
-  const [directMessages, setDirectMessages] = useState([]);
-  const [activeChannel, setActiveChannel] = useState(null);
-  const [messages, setMessages] = useState({
-    general: []
-  });
+  const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [onlineUsers, setOnlineUsers] = useState([]);
-  const [showChannelModal, setShowChannelModal] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(null);
+  const [showGuestInput, setShowGuestInput] = useState(false);
+  const [guestName, setGuestName] = useState('');
+  const [activeThread, setActiveThread] = useState(null);
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   useEffect(() => {
     fetch('http://localhost:3000/auth/user', {
@@ -231,6 +37,76 @@ const App = () => {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const initializeSocket = (currentUser) => {
+    console.log('Initializing socket connection...');
+    socketRef.current = io('http://localhost:3000', {
+      withCredentials: true,
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      autoConnect: true
+    });
+
+    socketRef.current.on('connect', () => {
+      console.log('Connected to socket server with ID:', socketRef.current.id);
+    });
+
+    socketRef.current.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
+    });
+
+    socketRef.current.on('initialize-messages', (initialMessages) => {
+      setMessages(initialMessages);
+    });
+
+    socketRef.current.on('message', (messageData) => {
+      console.log('Received message:', messageData);
+      setMessages(prev => [...prev, messageData]);
+    });
+
+    socketRef.current.on('userJoined', ({ user: joinedUser, onlineUsers: updatedUsers }) => {
+      console.log('User joined:', joinedUser);
+      console.log('Updated online users:', updatedUsers);
+      setOnlineUsers(updatedUsers);
+    });
+
+    socketRef.current.on('userLeft', ({ user: leftUser, onlineUsers: updatedUsers }) => {
+      console.log('User left:', leftUser);
+      console.log('Updated online users:', updatedUsers);
+      setOnlineUsers(updatedUsers);
+    });
+
+    socketRef.current.on('reaction-updated', ({ messageId, reactions }) => {
+      setMessages(prevMessages => 
+        prevMessages.map(msg => 
+          msg.id === messageId 
+            ? { ...msg, reactions } 
+            : msg
+        )
+      );
+    });
+
+    socketRef.current.on('thread-updated', ({ messageId, thread }) => {
+      setMessages(prevMessages => 
+        prevMessages.map(msg => 
+          msg.id === messageId 
+            ? { ...msg, thread } 
+            : msg
+        )
+      );
+    });
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  };
+
   const handleGuestLogin = async () => {
     if (guestName.trim()) {
       try {
@@ -243,135 +119,14 @@ const App = () => {
           body: JSON.stringify({ name: guestName })
         });
 
-        if (!response.ok) {
-          throw new Error('Failed to login as guest');
-        }
-
         const data = await response.json();
         if (data.user) {
           setUser(data.user);
-          setActiveChannel({
-            id: 'general',
-            name: 'general',
-            description: 'General discussion'
-          });
           initializeSocket(data.user);
         }
       } catch (error) {
         console.error('Error logging in as guest:', error);
-        alert('Failed to login as guest. Please try again.');
       }
-    }
-  };
-
-  const initializeSocket = (currentUser) => {
-    console.log('Initializing socket connection...', currentUser);
-    
-    // Close existing connection if any
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-    }
-
-    // Create new socket connection
-    socketRef.current = io('http://localhost:3000', {
-      withCredentials: true,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000
-    });
-
-    // Connection event handlers
-    socketRef.current.on('connect', () => {
-      console.log('Connected to socket server');
-      // Join general channel by default
-      socketRef.current.emit('join-channel', { channelId: 'general' });
-    });
-
-    socketRef.current.on('message', (messageData) => {
-      console.log('Received message:', messageData);
-      setMessages(prev => ({
-        ...prev,
-        [messageData.channelId]: [
-          ...(prev[messageData.channelId] || []),
-          messageData
-        ]
-      }));
-    });
-
-    socketRef.current.on('userJoined', ({ user: joinedUser, onlineUsers }) => {
-      console.log('User joined:', joinedUser);
-      setOnlineUsers(onlineUsers);
-    });
-
-    socketRef.current.on('userLeft', ({ user: leftUser, onlineUsers }) => {
-      console.log('User left:', leftUser);
-      setOnlineUsers(onlineUsers);
-    });
-
-    socketRef.current.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
-    });
-
-    socketRef.current.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
-    });
-
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-      }
-    };
-  };
-
-  const handleCreateChannel = (channelData) => {
-    const newChannel = {
-      id: channelData.name,
-      ...channelData
-    };
-    setChannels(prev => [...prev, newChannel]);
-    setActiveChannel(newChannel);
-  };
-
-  const handleChannelSelect = (channel) => {
-    setActiveChannel(channel);
-    if (!messages[channel.id]) {
-      setMessages(prev => ({
-        ...prev,
-        [channel.id]: []
-      }));
-    }
-  };
-
-  const sendMessage = (e) => {
-    e.preventDefault();
-    console.log('Attempting to send message');
-    console.log('Socket connected:', socketRef.current?.connected);
-    console.log('Active channel:', activeChannel);
-    console.log('Message:', newMessage);
-
-    if (newMessage.trim() && socketRef.current?.connected && activeChannel) {
-      const messageData = {
-        content: newMessage,
-        channelId: activeChannel.id,
-        sender: user,
-        timestamp: new Date().toISOString(),
-      };
-
-      console.log('Emitting message:', messageData);
-      socketRef.current.emit('message', messageData);
-
-      // Optimistically add message to state
-      setMessages(prev => ({
-        ...prev,
-        [activeChannel.id]: [
-          ...(prev[activeChannel.id] || []),
-          messageData
-        ]
-      }));
-
-      setNewMessage('');
-    } else {
-      console.log('Message not sent - conditions not met');
     }
   };
 
@@ -386,30 +141,106 @@ const App = () => {
         socketRef.current.disconnect();
       }
       setUser(null);
-      setMessages({});
-      setChannels([]);
-      setDirectMessages([]);
-      setActiveChannel(null);
+      setMessages([]);
       setNewMessage('');
       setOnlineUsers([]);
       setShowGuestInput(false);
       setGuestName('');
+      setActiveThread(null);
     } catch (error) {
       console.error('Error logging out:', error);
     }
   };
 
-  useEffect(() => {
-    if (user) {
-      const cleanup = initializeSocket(user);
-      return () => {
-        cleanup();
-        if (socketRef.current) {
-          socketRef.current.disconnect();
-        }
+  const sendMessage = (e) => {
+    e.preventDefault();
+    if (newMessage.trim() && socketRef.current?.connected) {
+      const messageData = {
+        content: newMessage,
+        sender: user,
+        timestamp: new Date().toISOString(),
       };
+      console.log('Emitting message:', messageData);
+      socketRef.current.emit('message', messageData);
+      setNewMessage('');
     }
-  }, [user]); // Only reinitialize when user changes
+  };
+
+  const handleReaction = (messageId, emoji) => {
+    const message = messages.find(m => m.id === messageId);
+    const hasReacted = message.reactions[emoji]?.includes(user.id);
+
+    if (hasReacted) {
+      socketRef.current.emit('remove-reaction', {
+        messageId,
+        reaction: emoji,
+        userId: user.id
+      });
+    } else {
+      socketRef.current.emit('add-reaction', {
+        messageId,
+        reaction: emoji,
+        userId: user.id
+      });
+    }
+    setShowEmojiPicker(null);
+  };
+
+  const EmojiPicker = ({ messageId }) => (
+    <div className="absolute bottom-full mb-2 bg-white rounded-lg shadow-lg border p-2 flex gap-1">
+      {commonEmojis.map(emoji => (
+        <button
+          key={emoji}
+          onClick={() => handleReaction(messageId, emoji)}
+          className="hover:bg-gray-100 p-1 rounded"
+        >
+          {emoji}
+        </button>
+      ))}
+    </div>
+  );
+
+  const MessageReactions = ({ messageId, reactions }) => (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {Object.entries(reactions || {}).map(([emoji, users]) => (
+        <button
+          key={emoji}
+          onClick={() => handleReaction(messageId, emoji)}
+          className={`flex items-center space-x-1 text-sm px-2 py-1 rounded-full 
+            ${users.includes(user.id) 
+              ? 'bg-blue-100 hover:bg-blue-200' 
+              : 'bg-gray-100 hover:bg-gray-200'}`}
+        >
+          <span>{emoji}</span>
+          <span>{users.length}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  const UserSidebar = () => (
+    <div className="w-64 bg-gray-800 text-white flex flex-col">
+      <div className="p-4 border-b border-gray-700">
+        <h2 className="text-lg font-semibold">Online Users</h2>
+        <p className="text-sm text-gray-400">{onlineUsers.length} online</p>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {onlineUsers.map((onlineUser) => (
+          <div
+            key={onlineUser.id}
+            className={`p-3 flex items-center space-x-3 hover:bg-gray-700 ${
+              onlineUser.id === user?.id ? 'bg-gray-700' : ''
+            }`}
+          >
+            <div className="w-2 h-2 rounded-full bg-green-500"></div>
+            <span className="truncate">
+              {onlineUser.id === user?.id ? `${onlineUser.name} (you)` : onlineUser.name}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -486,36 +317,14 @@ const App = () => {
 
   return (
     <div className="h-screen flex">
-      <ChannelSidebar
-        channels={channels}
-        directMessages={directMessages}
-        activeChannel={activeChannel}
-        onChannelSelect={handleChannelSelect}
-        onCreateChannel={() => setShowChannelModal(true)}
-        onCreateDM={() => {/* Handle DM creation */}}
-        currentUser={user}
-      />
-
-      <div className="flex-1 flex flex-col">
+      <UserSidebar />
+      <div className={`flex-1 flex flex-col ${activeThread ? 'hidden md:flex' : ''}`}>
         <div className="bg-white border-b px-4 py-2 shadow-sm flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-bold flex items-center">
-              {activeChannel ? (
-                <>
-                  {activeChannel.id.startsWith('dm-') ? (
-                    <MessageCircle className="mr-2" size={20} />
-                  ) : (
-                    <Hash className="mr-2" size={20} />
-                  )}
-                  {activeChannel.name}
-                </>
-              ) : (
-                'Select a channel'
-              )}
-            </h2>
-            {activeChannel?.description && (
-              <p className="text-sm text-gray-600">{activeChannel.description}</p>
-            )}
+            <h2 className="text-xl font-bold">ChatGenius</h2>
+            <p className="text-sm text-gray-600">
+              {user.name} {user.email && `• ${user.email}`}
+            </p>
           </div>
           <div className="flex items-center space-x-4">
             {user.avatar && (
@@ -525,10 +334,6 @@ const App = () => {
                 className="w-8 h-8 rounded-full"
               />
             )}
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span className="text-sm text-gray-600">{user.name}</span>
-            </div>
             <button 
               className="text-gray-600 hover:text-gray-800 px-4 py-2"
               onClick={handleLogout}
@@ -538,72 +343,94 @@ const App = () => {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {activeChannel && messages[activeChannel.id]?.map((message, index) => (
-            <div
-              key={message.id || index}
-              className={`flex ${message.sender.id === user.id ? 'justify-end' : 'justify-start'}`}
-            >
-              <div className={`max-w-[70%] rounded-lg p-3 ${
-                message.sender.id === user.id ? 'bg-blue-500 text-white' : 'bg-gray-100'
-              }`}>
-                <div className="flex items-center space-x-2 mb-1">
-                  {message.sender.avatar && (
-                    <img 
-                      src={message.sender.avatar} 
-                      alt="Avatar"
-                      className="w-6 h-6 rounded-full" 
-                    />
+        <div className="flex-1 bg-white p-4 overflow-hidden flex flex-col">
+          <div className="flex-1 overflow-y-auto mb-4 space-y-4">
+            {messages.map((message, index) => (
+              <div
+                key={index}
+                className={`flex ${message.sender.id === user.id ? 'justify-end' : 'justify-start'}`}
+              >
+                <div className="relative group">
+                  <div
+                    className={`max-w-[70%] rounded-lg p-3 ${
+                      message.sender.id === user.id
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-100'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2 mb-1">
+                      {message.sender.avatar && (
+                        <img 
+                          src={message.sender.avatar} 
+                          alt="Avatar" 
+                          className="w-6 h-6 rounded-full"
+                        />
+                      )}
+                      <div className="text-sm font-semibold">
+                        {message.sender.id === user.id ? 'You' : message.sender.name}
+                      </div>
+                    </div>
+                    <div>{message.content}</div>
+                    <div className="text-xs opacity-70 mt-1">
+                      {new Date(message.timestamp).toLocaleTimeString()}
+                    </div>
+                    <div className="mt-1 flex items-center space-x-2">
+                      <MessageReactions messageId={message.id} reactions={message.reactions} />
+                      <button
+                        onClick={() => setActiveThread(message.id)}
+                        className="text-sm hover:underline"
+                      >
+                        {message.thread?.replyCount 
+                          ? `${message.thread.replyCount} ${message.thread.replyCount === 1 ? 'reply' : 'replies'}` 
+                          : 'Reply in thread'}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={() => setShowEmojiPicker(showEmojiPicker === message.id ? null : message.id)}
+                    className="absolute -right-10 top-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-100 rounded"
+                  >
+                    😀
+                  </button>
+                  
+                  {showEmojiPicker === message.id && (
+                    <EmojiPicker messageId={message.id} />
                   )}
-                  <span className="font-semibold">
-                    {message.sender.id === user.id ? 'You' : message.sender.name}
-                  </span>
-                </div>
-                <p>{message.content}</p>
-                <div className="text-xs opacity-70 mt-1">
-                  {new Date(message.timestamp).toLocaleTimeString()}
                 </div>
               </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
 
-        {activeChannel && (
-          <form onSubmit={sendMessage} className="p-4 border-t bg-white">
-            <div className="flex flex-col space-y-2">
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder={`Message #${activeChannel.name}`}
-                  className="flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <button
-                  type="submit"
-                  disabled={!newMessage.trim() || !socketRef.current?.connected}
-                  className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 disabled:opacity-50"
-                >
-                  Send
-                </button>
-              </div>
-              {!socketRef.current?.connected && (
-                <p className="text-red-500 text-sm">
-                  Disconnected from server. Reconnecting...
-                </p>
-              )}
-            </div>
+          <form onSubmit={sendMessage} className="flex gap-2">
+            <input
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Type a message..."
+              className="flex-1 px-3 py-2 border rounded-md"
+            />
+            <button 
+              type="submit" 
+              disabled={!newMessage.trim()}
+              className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+            >
+              Send
+            </button>
           </form>
-        )}
+        </div>
       </div>
 
-      {showChannelModal && (
-        <CreateChannelModal
-          isOpen={showChannelModal}
-          onClose={() => setShowChannelModal(false)}
-          onSubmit={handleCreateChannel}
-        />
+      {/* Thread Panel */}
+      {activeThread && (
+        <div className="w-full md:w-96 border-l flex flex-col">
+          <ThreadPanel
+            message={messages.find(m => m.id === activeThread)}
+            onClose={() => setActiveThread(null)}
+            user={user}
+            socketRef={socketRef}
+          />
+        </div>
       )}
     </div>
   );
