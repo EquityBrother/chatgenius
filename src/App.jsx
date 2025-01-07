@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import ThreadPanel from './components/ThreadPanel';
+import DirectMessagePanel from './components/DirectMessagePanel';
 
 // Common emoji reactions
 const commonEmojis = ['👍', '❤️', '😂', '🎉', '🤔', '😢'];
@@ -15,6 +16,7 @@ const App = () => {
   const [showGuestInput, setShowGuestInput] = useState(false);
   const [guestName, setGuestName] = useState('');
   const [activeThread, setActiveThread] = useState(null);
+  const [showDMs, setShowDMs] = useState(false); // Added the missing state
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -23,18 +25,32 @@ const App = () => {
   };
 
   useEffect(() => {
+    console.log('Starting auth check...');
     fetch('http://localhost:3000/auth/user', {
       credentials: 'include'
     })
-      .then(res => res.json())
+      .then(res => {
+        console.log('Auth response status:', res.status);
+        return res.json();
+      })
       .then(data => {
+        console.log('Auth data received:', data);
         if (data.user) {
+          console.log('Setting user:', data.user);
           setUser(data.user);
+          console.log('Initializing socket for user:', data.user);
           initializeSocket(data.user);
+        } else {
+          console.log('No user data received');
         }
       })
-      .catch(err => console.error('Error checking auth status:', err))
-      .finally(() => setLoading(false));
+      .catch(err => {
+        console.error('Error in auth check:', err);
+      })
+      .finally(() => {
+        console.log('Auth check completed, setting loading to false');
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -42,7 +58,7 @@ const App = () => {
   }, [messages]);
 
   const initializeSocket = (currentUser) => {
-    console.log('Initializing socket connection...');
+    console.log('Initializing socket connection with user:', currentUser);
     socketRef.current = io('http://localhost:3000', {
       withCredentials: true,
       transports: ['websocket', 'polling'],
@@ -52,14 +68,22 @@ const App = () => {
     });
 
     socketRef.current.on('connect', () => {
-      console.log('Connected to socket server with ID:', socketRef.current.id);
+      console.log('Socket connected successfully');
+      console.log('Socket ID:', socketRef.current.id);
+      console.log('Is socket connected?', socketRef.current.connected);
     });
 
     socketRef.current.on('connect_error', (error) => {
       console.error('Socket connection error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        description: error.description,
+        type: error.type
+      });
     });
 
     socketRef.current.on('initialize-messages', (initialMessages) => {
+      console.log('Received initial messages:', initialMessages);
       setMessages(initialMessages);
     });
 
@@ -70,7 +94,7 @@ const App = () => {
 
     socketRef.current.on('userJoined', ({ user: joinedUser, onlineUsers: updatedUsers }) => {
       console.log('User joined:', joinedUser);
-      console.log('Updated online users:', updatedUsers);
+      console.log('Current online users:', updatedUsers);
       setOnlineUsers(updatedUsers);
     });
 
@@ -100,8 +124,14 @@ const App = () => {
       );
     });
 
+    // Debug disconnection
+    socketRef.current.on('disconnect', (reason) => {
+      console.log('Socket disconnected. Reason:', reason);
+    });
+
     return () => {
       if (socketRef.current) {
+        console.log('Cleaning up socket connection');
         socketRef.current.disconnect();
       }
     };
@@ -121,6 +151,7 @@ const App = () => {
 
         const data = await response.json();
         if (data.user) {
+          console.log('Guest login successful:', data.user);
           setUser(data.user);
           initializeSocket(data.user);
         }
@@ -147,6 +178,7 @@ const App = () => {
       setShowGuestInput(false);
       setGuestName('');
       setActiveThread(null);
+      setShowDMs(false);
     } catch (error) {
       console.error('Error logging out:', error);
     }
@@ -160,7 +192,7 @@ const App = () => {
         sender: user,
         timestamp: new Date().toISOString(),
       };
-      console.log('Emitting message:', messageData);
+      console.log('Sending message:', messageData);
       socketRef.current.emit('message', messageData);
       setNewMessage('');
     }
@@ -215,30 +247,6 @@ const App = () => {
           <span>{users.length}</span>
         </button>
       ))}
-    </div>
-  );
-
-  const UserSidebar = () => (
-    <div className="w-64 bg-gray-800 text-white flex flex-col">
-      <div className="p-4 border-b border-gray-700">
-        <h2 className="text-lg font-semibold">Online Users</h2>
-        <p className="text-sm text-gray-400">{onlineUsers.length} online</p>
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        {onlineUsers.map((onlineUser) => (
-          <div
-            key={onlineUser.id}
-            className={`p-3 flex items-center space-x-3 hover:bg-gray-700 ${
-              onlineUser.id === user?.id ? 'bg-gray-700' : ''
-            }`}
-          >
-            <div className="w-2 h-2 rounded-full bg-green-500"></div>
-            <span className="truncate">
-              {onlineUser.id === user?.id ? `${onlineUser.name} (you)` : onlineUser.name}
-            </span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 
@@ -317,30 +325,60 @@ const App = () => {
 
   return (
     <div className="h-screen flex">
-      <UserSidebar />
-      <div className={`flex-1 flex flex-col ${activeThread ? 'hidden md:flex' : ''}`}>
-        <div className="bg-white border-b px-4 py-2 shadow-sm flex justify-between items-center">
-          <div>
-            <h2 className="text-xl font-bold">ChatGenius</h2>
-            <p className="text-sm text-gray-600">
-              {user.name} {user.email && `• ${user.email}`}
-            </p>
+      {/* Sidebar */}
+      <div className="w-64 bg-gray-800 text-white flex flex-col">
+        <div className="p-4 border-b border-gray-700">
+          <h2 className="text-xl font-bold">ChatGenius</h2>
+          <p className="text-sm text-gray-400">{onlineUsers.length} online</p>
+        </div>
+
+        {/* Online Users */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-4">
+            <div className="text-gray-400 text-sm mb-2">Online Users</div>
+            {onlineUsers.map((onlineUser) => (
+              <div
+                key={onlineUser.id}
+                className="flex items-center space-x-2 px-2 py-1 rounded hover:bg-gray-700 cursor-pointer"
+                onClick={() => {
+                  if (onlineUser.id !== user.id) {
+                    setShowDMs(true);
+                    setActiveThread(null);
+                  }
+                }}
+              >
+                <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                <span>
+                  {onlineUser.id === user.id ? `${onlineUser.name} (you)` : onlineUser.name}
+                </span>
+              </div>
+            ))}
           </div>
-          <div className="flex items-center space-x-4">
-            {user.avatar && (
-              <img
-                src={user.avatar}
-                alt="Profile"
-                className="w-8 h-8 rounded-full"
-              />
-            )}
+        </div>
+
+        {/* User Profile */}
+        <div className="p-4 border-t border-gray-700">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              {user.avatar && (
+                <img src={user.avatar} alt="Profile" className="w-8 h-8 rounded-full" />
+              )}
+              <span className="text-sm font-medium">{user.name}</span>
+            </div>
             <button 
-              className="text-gray-600 hover:text-gray-800 px-4 py-2"
               onClick={handleLogout}
+              className="text-gray-400 hover:text-white"
             >
               Logout
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Main Chat Area */}
+      <div className={`flex-1 flex flex-col ${(activeThread || showDMs) ? 'hidden md:flex' : 'flex'}`}>
+        <div className="bg-white border-b px-4 py-2 shadow-sm">
+          <h2 className="text-xl font-bold">Main Channel</h2>
         </div>
 
         <div className="flex-1 bg-white p-4 overflow-hidden flex flex-col">
@@ -429,6 +467,18 @@ const App = () => {
             onClose={() => setActiveThread(null)}
             user={user}
             socketRef={socketRef}
+          />
+        </div>
+      )}
+
+      {/* Direct Messages Panel */}
+      {showDMs && (
+        <div className="w-full md:w-96 border-l flex flex-col">
+          <DirectMessagePanel
+            user={user}
+            onlineUsers={onlineUsers}
+            socketRef={socketRef}
+            onClose={() => setShowDMs(false)}
           />
         </div>
       )}

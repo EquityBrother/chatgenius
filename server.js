@@ -16,6 +16,7 @@ dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
+const directMessages = new Map(); // Store DM history
 
 // Create session middleware
 const sessionMiddleware = session({
@@ -177,7 +178,35 @@ io.on('connection', (socket) => {
     messages.push(messageWithId);
     io.emit('message', messageWithId);
   });
-
+  socket.on('direct-message', (messageData) => {
+    const { from, to } = messageData;
+    const dmKey = [from, to].sort().join(':');
+    
+    if (!directMessages.has(dmKey)) {
+      directMessages.set(dmKey, []);
+    }
+    
+    directMessages.get(dmKey).push(messageData);
+    
+    // Find the recipient's socket and send them the message
+    const recipientSocket = Array.from(connectedUsers.entries())
+      .find(([_, user]) => user.id === to)?.[0];
+      
+    if (recipientSocket) {
+      io.to(recipientSocket).emit('direct-message', messageData);
+    }
+    
+    // Send back to sender
+    socket.emit('direct-message', messageData);
+  });
+  
+  // Get DM history
+  socket.on('get-dm-history', ({ from, to }) => {
+    const dmKey = [from, to].sort().join(':');
+    const history = directMessages.get(dmKey) || [];
+    socket.emit('dm-history', { messages: history });
+  });
+  
   socket.on('add-reaction', ({ messageId, reaction, userId }) => {
     const message = messages.find(m => m.id === messageId);
     if (message) {
