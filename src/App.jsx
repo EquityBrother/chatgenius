@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import ThreadPanel from './components/ThreadPanel';
 import DirectMessagePanel from './components/DirectMessagePanel';
+import FileUploader from './components/FileUploader';
+import SearchComponent from './components/SearchComponent';
+import { MessageSquare, File, Search as SearchIcon, X } from 'lucide-react';
 
 // Common emoji reactions
 const commonEmojis = ['👍', '❤️', '😂', '🎉', '🤔', '😢'];
@@ -16,9 +19,12 @@ const App = () => {
   const [showGuestInput, setShowGuestInput] = useState(false);
   const [guestName, setGuestName] = useState('');
   const [activeThread, setActiveThread] = useState(null);
-  const [showDMs, setShowDMs] = useState(false); // Added the missing state
+  const [showDMs, setShowDMs] = useState(false);
+  const [showFileUploader, setShowFileUploader] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -69,17 +75,10 @@ const App = () => {
 
     socketRef.current.on('connect', () => {
       console.log('Socket connected successfully');
-      console.log('Socket ID:', socketRef.current.id);
-      console.log('Is socket connected?', socketRef.current.connected);
     });
 
     socketRef.current.on('connect_error', (error) => {
       console.error('Socket connection error:', error);
-      console.error('Error details:', {
-        message: error.message,
-        description: error.description,
-        type: error.type
-      });
     });
 
     socketRef.current.on('initialize-messages', (initialMessages) => {
@@ -124,9 +123,14 @@ const App = () => {
       );
     });
 
-    // Debug disconnection
-    socketRef.current.on('disconnect', (reason) => {
-      console.log('Socket disconnected. Reason:', reason);
+    socketRef.current.on('file-upload-complete', (fileData) => {
+      console.log('File upload complete:', fileData);
+      setSelectedFile(fileData);
+    });
+
+    socketRef.current.on('file-upload-error', (error) => {
+      console.error('File upload error:', error);
+      alert('Error uploading file');
     });
 
     return () => {
@@ -186,15 +190,18 @@ const App = () => {
 
   const sendMessage = (e) => {
     e.preventDefault();
-    if (newMessage.trim() && socketRef.current?.connected) {
+    if ((newMessage.trim() || selectedFile) && socketRef.current?.connected) {
       const messageData = {
         content: newMessage,
         sender: user,
         timestamp: new Date().toISOString(),
+        file: selectedFile
       };
       console.log('Sending message:', messageData);
       socketRef.current.emit('message', messageData);
       setNewMessage('');
+      setSelectedFile(null);
+      setShowFileUploader(false);
     }
   };
 
@@ -217,6 +224,24 @@ const App = () => {
     }
     setShowEmojiPicker(null);
   };
+
+  const handleSearchResult = (result) => {
+    if (result.file) {
+      // Handle file result
+      window.open(`http://localhost:3000${result.file.url}`, '_blank');
+    } else {
+      // Handle message result
+      const messageElement = document.getElementById(`message-${result.id}`);
+      if (messageElement) {
+        messageElement.scrollIntoView({ behavior: 'smooth' });
+        messageElement.classList.add('highlight');
+        setTimeout(() => {
+          messageElement.classList.remove('highlight');
+        }, 2000);
+      }
+    }
+  };
+
 
   const EmojiPicker = ({ messageId }) => (
     <div className="absolute bottom-full mb-2 bg-white rounded-lg shadow-lg border p-2 flex gap-1">
@@ -249,6 +274,39 @@ const App = () => {
       ))}
     </div>
   );
+
+  const FileAttachment = ({ file }) => {
+    const isImage = file.type.startsWith('image/');
+
+    return (
+      <div className="mt-2 border rounded-lg p-2 bg-gray-50">
+        <div className="flex items-center space-x-2">
+          <File className="w-5 h-5 text-gray-500" />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium truncate">{file.name}</div>
+            <div className="text-xs text-gray-500">
+              {(file.size / 1024).toFixed(1)} KB
+            </div>
+          </div>
+          <a
+            href={`http://localhost:3000${file.url}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            {isImage ? 'View' : 'Download'}
+          </a>
+        </div>
+        {isImage && (
+          <img
+            src={`http://localhost:3000${file.url}`}
+            alt={file.name}
+            className="mt-2 max-w-sm rounded"
+          />
+        )}
+      </div>
+    );
+  };
 
   if (loading) {
     return (
@@ -377,8 +435,12 @@ const App = () => {
 
       {/* Main Chat Area */}
       <div className={`flex-1 flex flex-col ${(activeThread || showDMs) ? 'hidden md:flex' : 'flex'}`}>
-        <div className="bg-white border-b px-4 py-2 shadow-sm">
+        <div className="bg-white border-b px-4 py-2 shadow-sm flex items-center justify-between">
           <h2 className="text-xl font-bold">Main Channel</h2>
+          <SearchComponent
+            socketRef={socketRef}
+            onResultClick={handleSearchResult}
+          />
         </div>
 
         <div className="flex-1 bg-white p-4 overflow-hidden flex flex-col">
@@ -386,6 +448,7 @@ const App = () => {
             {messages.map((message, index) => (
               <div
                 key={index}
+                id={`message-${message.id}`}
                 className={`flex ${message.sender.id === user.id ? 'justify-end' : 'justify-start'}`}
               >
                 <div className="relative group">
@@ -409,6 +472,7 @@ const App = () => {
                       </div>
                     </div>
                     <div>{message.content}</div>
+                    {message.file && <FileAttachment file={message.file} />}
                     <div className="text-xs opacity-70 mt-1">
                       {new Date(message.timestamp).toLocaleTimeString()}
                     </div>
@@ -441,20 +505,57 @@ const App = () => {
             <div ref={messagesEndRef} />
           </div>
 
-          <form onSubmit={sendMessage} className="flex gap-2">
-            <input
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="Type a message..."
-              className="flex-1 px-3 py-2 border rounded-md"
-            />
-            <button 
-              type="submit" 
-              disabled={!newMessage.trim()}
-              className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
-            >
-              Send
-            </button>
+          {showFileUploader && (
+            <div className="mb-4">
+              <FileUploader
+                onUpload={(file) => {
+                  setSelectedFile(file);
+                  setShowFileUploader(false);
+                }}
+                socketRef={socketRef}
+                user={user}
+              />
+            </div>
+          )}
+
+          <form onSubmit={sendMessage} className="space-y-2">
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => setShowFileUploader(!showFileUploader)}
+                className="p-2 text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-100"
+              >
+                <File className="w-5 h-5" />
+              </button>
+              <input
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Type a message..."
+                className="flex-1 px-3 py-2 border rounded-md"
+              />
+              <button 
+                type="submit" 
+                disabled={!newMessage.trim() && !selectedFile}
+                className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+              >
+                Send
+              </button>
+            </div>
+            {selectedFile && (
+              <div className="flex items-center justify-between bg-gray-50 p-2 rounded">
+                <div className="flex items-center space-x-2">
+                  <File className="w-4 h-4 text-gray-500" />
+                  <span className="text-sm truncate">{selectedFile.name}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedFile(null)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </form>
         </div>
       </div>

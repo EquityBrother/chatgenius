@@ -8,15 +8,30 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs';
+import path from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 dotenv.config();
 
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
+}
+
 const app = express();
 const httpServer = createServer(app);
+
+// Data storage
 const directMessages = new Map(); // Store DM history
+const files = new Map(); // Store file metadata
+const messageIndex = new Map(); // Search index for messages
+const fileIndex = new Map(); // Search index for files
+const messages = []; // Store messages
 
 // Create session middleware
 const sessionMiddleware = session({
@@ -38,6 +53,7 @@ const io = new Server(httpServer, {
     credentials: true,
     allowedHeaders: ["my-custom-header"]
   },
+  maxHttpBufferSize: 10e6, // 10 MB max file size
   transports: ['websocket', 'polling']
 });
 
@@ -49,10 +65,14 @@ app.use(cors({
 
 // Use session middleware
 app.use(sessionMiddleware);
+app.use(express.json());
 
-// Initialize Passport and restore authentication state from session
+// Initialize Passport
 app.use(passport.initialize());
 app.use(passport.session());
+
+// Serve uploaded files
+app.use('/uploads', express.static(uploadsDir));
 
 // Passport configuration
 passport.use(new GoogleStrategy({
@@ -130,8 +150,48 @@ app.post('/auth/logout', (req, res) => {
   });
 });
 
-// Store messages and reactions in memory (in production, use a database)
-let messages = [];
+// Search indexing functions
+const addToMessageIndex = (message) => {
+  const searchableText = `${message.content} ${message.sender.name}`.toLowerCase();
+  messageIndex.set(message.id, {
+    text: searchableText,
+    message
+  });
+};
+
+const addToFileIndex = (file) => {
+  const searchableText = `${file.name} ${file.uploadedBy}`.toLowerCase();
+  fileIndex.set(file.id, {
+    text: searchableText,
+    file
+  });
+};
+
+const searchMessages = (term) => {
+  const results = [];
+  const searchTerm = term.toLowerCase();
+  
+  for (const [_, data] of messageIndex) {
+    if (data.text.includes(searchTerm)) {
+      results.push(data.message);
+    }
+  }
+  
+  return results.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+};
+
+const searchFiles = (term) => {
+  const results = [];
+  const searchTerm = term.toLowerCase();
+  
+  for (const [_, data] of fileIndex) {
+    if (data.text.includes(searchTerm)) {
+      results.push(data.file);
+    }
+  }
+  
+  return results.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+};
 
 // Socket.IO connection handling
 const connectedUsers = new Map();
@@ -164,10 +224,77 @@ io.on('connection', (socket) => {
     onlineUsers: Array.from(connectedUsers.values())
   });
 
+  // Handle file uploads
+  socket.on('file-upload', async ({ fileData, file }) => {
+    try {
+      const fileId = uuidv4();
+      const base64Data = file.split(';base64,').pop();
+      const fileName = `${fileId}-${fileData.name}`;
+      const filePath = path.join(uploadsDir, fileName);
+      
+      // Save file to disk
+      fs.writeFileSync(filePath, base64Data, { encoding: 'base64' });
+      
+      // Store file metadata
+      const fileMetadata = {
+        id: fileId,
+        name: fileData.name,
+        path: fileName,
+        type: fileData.type,
+        size: fileData.size,
+        uploadedBy: fileData.uploadedBy,
+        timestamp: fileData.timestamp,
+        url: `/uploads/${fileName}`
+      };
+      
+      files.set(fileId, fileMetadata);
+      addToFileIndex(fileMetadata);
+
+      // Emit file upload complete event
+      socket.emit('file-upload-complete', fileMetadata);
+
+      // Create a message for the file share
+      const fileMessage = {
+        id: uuidv4(),
+        content: `Shared a file: ${fileData.name}`,
+        sender: user,
+        timestamp: new Date().toISOString(),
+        file: fileMetadata,
+        reactions: {},
+        thread: {
+          replies: [],
+          replyCount: 0
+        }
+      };
+
+      messages.push(fileMessage);
+      addToMessageIndex(fileMessage);
+      io.emit('message', fileMessage);
+
+    } catch (error) {
+      console.error('File upload error:', error);
+      socket.emit('file-upload-error', { error: 'Failed to upload file' });
+    }
+  });
+
+  // Handle search requests
+  socket.on('search', ({ term, type }) => {
+    let results = [];
+    
+    if (type === 'messages') {
+      results = searchMessages(term);
+    } else if (type === 'files') {
+      results = searchFiles(term);
+    }
+    
+    socket.emit('search-results', results);
+  });
+
+  // Handle messages
   socket.on('message', (messageData) => {
     const messageWithId = {
       ...messageData,
-      id: Date.now().toString(),
+      id: uuidv4(),
       reactions: {},
       thread: {
         replies: [],
@@ -176,8 +303,11 @@ io.on('connection', (socket) => {
     };
     
     messages.push(messageWithId);
+    addToMessageIndex(messageWithId);
     io.emit('message', messageWithId);
   });
+
+  // Handle direct messages
   socket.on('direct-message', (messageData) => {
     const { from, to } = messageData;
     const dmKey = [from, to].sort().join(':');
@@ -188,7 +318,7 @@ io.on('connection', (socket) => {
     
     directMessages.get(dmKey).push(messageData);
     
-    // Find the recipient's socket and send them the message
+    // Find recipient's socket and send them the message
     const recipientSocket = Array.from(connectedUsers.entries())
       .find(([_, user]) => user.id === to)?.[0];
       
@@ -207,6 +337,7 @@ io.on('connection', (socket) => {
     socket.emit('dm-history', { messages: history });
   });
   
+  // Handle reactions
   socket.on('add-reaction', ({ messageId, reaction, userId }) => {
     const message = messages.find(m => m.id === messageId);
     if (message) {
@@ -248,6 +379,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Handle threads
   socket.on('create-thread', ({ messageId, reply }) => {
     const message = messages.find(m => m.id === messageId);
     if (message) {
@@ -273,6 +405,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Handle disconnection
   socket.on('disconnect', () => {
     const user = connectedUsers.get(socket.id);
     if (user) {
