@@ -78,7 +78,7 @@ app.use('/uploads', express.static(uploadsDir));
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: "http://localhost:3000/auth/google/callback"
+    callbackURL: "http://3.141.200.115/auth/google/callback"
   },
   function(accessToken, refreshToken, profile, cb) {
     const user = {
