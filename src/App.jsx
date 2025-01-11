@@ -32,7 +32,7 @@ const App = () => {
 
   useEffect(() => {
     console.log('Starting auth check...');
-    fetch('http://localhost:3000/auth/user', {
+    fetch('http://3.141.200.115/auth/user', {
       credentials: 'include'
     })
       .then(res => {
