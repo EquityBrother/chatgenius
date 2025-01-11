@@ -141,7 +141,7 @@ const App = () => {
   const handleGuestLogin = async () => {
     if (guestName.trim()) {
       try {
-        const response = await fetch('http://localhost:3000/auth/guest', {
+        const response = await fetch('http://3.141.200.115/auth/guest', {
           method: 'POST',
           credentials: 'include',
           headers: {
@@ -164,7 +164,7 @@ const App = () => {
 
   const handleLogout = async () => {
     try {
-      await fetch('http://localhost:3000/auth/logout', {
+      await fetch('http://3.141.200.115/auth/logout', {
         method: 'POST',
         credentials: 'include'
       });
@@ -225,7 +225,7 @@ const App = () => {
   const handleSearchResult = (result) => {
     if (result.file) {
       // Handle file result
-      window.open(`http://localhost:3000${result.file.url}`, '_blank');
+      window.open(`http://3.141.200.115${result.file.url}`, '_blank');
     } else {
       // Handle message result
       const messageElement = document.getElementById(`message-${result.id}`);
@@ -296,7 +296,7 @@ const App = () => {
         </div>
         {isImage && (
           <img
-            src={`http://localhost:3000${file.url}`}
+            src={`http://3.141.200.115${file.url}`}
             alt={file.name}
             className="mt-2 max-w-sm rounded"
           />
@@ -346,7 +346,7 @@ const App = () => {
             ) : (
               <>
                 <a
-                  href="http://localhost:3000/auth/google"
+                  href="http://3.141.200.115/auth/google"
                   className="w-full flex items-center justify-center bg-white hover:bg-gray-50 text-gray-800 font-semibold py-2 px-4 border border-gray-300 rounded shadow-sm"
                 >
                   <img
