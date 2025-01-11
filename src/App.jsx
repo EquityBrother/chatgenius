@@ -65,13 +65,10 @@ const App = () => {
 
   const initializeSocket = (currentUser) => {
     console.log('Initializing socket connection with user:', currentUser);
-    socketRef.current = io('http://localhost:3000', {
-      withCredentials: true,
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      autoConnect: true
-    });
+    socketRef.current = io('http://3.141.200.115', {
+  withCredentials: true,
+  transports: ['websocket', 'polling']
+});
 
     socketRef.current.on('connect', () => {
       console.log('Socket connected successfully');
