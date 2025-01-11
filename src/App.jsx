@@ -286,7 +286,7 @@ const App = () => {
             </div>
           </div>
           <a
-            href={`http://localhost:3000${file.url}`}
+            href={`http://3.141.200.115${file.url}`}
             target="_blank"
             rel="noopener noreferrer"
             className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
