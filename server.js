@@ -33,6 +33,14 @@ const messageIndex = new Map(); // Search index for messages
 const fileIndex = new Map(); // Search index for files
 const messages = []; // Store messages
 
+// Configure CORS for both Express and Socket.IO
+const ALLOWED_ORIGINS = [
+  'http://3.141.200.115',
+  'https://3.141.200.115',
+  'http://localhost:5173',
+  'http://localhost:5174'
+];
+
 // Create session middleware
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
@@ -41,14 +49,14 @@ const sessionMiddleware = session({
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 24 * 60 * 60 * 1000
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 });
 
 // Configure Socket.IO with CORS
 const io = new Server(httpServer, {
   cors: {
-    origin: ["http://localhost:5173", "http://localhost:5174"],
+    origin: ALLOWED_ORIGINS,
     methods: ["GET", "POST"],
     credentials: true,
     allowedHeaders: ["my-custom-header"]
@@ -59,7 +67,7 @@ const io = new Server(httpServer, {
 
 // Configure CORS for REST endpoints
 app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:5174"],
+  origin: ALLOWED_ORIGINS,
   credentials: true
 }));
 
@@ -107,8 +115,8 @@ app.get('/auth/google',
 
 app.get('/auth/google/callback', 
   passport.authenticate('google', { 
-    failureRedirect: 'http://localhost:5173/login',
-    successRedirect: 'http://localhost:5173'
+    failureRedirect: 'http://3.141.200.115/login',
+    successRedirect: 'http://3.141.200.115'
   })
 );
 
@@ -420,9 +428,41 @@ io.on('connection', (socket) => {
   });
 });
 
-// Start server
-const PORT = process.env.PORT || 3000;
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Socket.IO server is ready to accept connections`);
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.info('SIGTERM signal received.');
+  httpServer.close(() => {
+    console.log('Server closed.');
+    process.exit(0);
+  });
 });
+
+// Error handling for uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Perform any necessary cleanup
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Application specific logging, throwing an error, or other logic here
+});
+
+// Start server with error handling
+const PORT = process.env.PORT || 3000;
+const startServer = () => {
+  try {
+    httpServer.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Socket.IO server is ready to accept connections`);
+      console.log(`Environment: ${process.env.NODE_ENV}`);
+      console.log(`Allowed origins: ${ALLOWED_ORIGINS.join(', ')}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
