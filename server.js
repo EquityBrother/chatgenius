@@ -35,10 +35,9 @@ const messages = []; // Store messages
 
 // Configure CORS for both Express and Socket.IO
 const ALLOWED_ORIGINS = [
-  'http://3.141.200.115.xip.io',
-  'https://3.141.200.115.xip.io',
   'http://localhost:5173',
-  'http://localhost:5174'
+  'http://localhost:5174',
+  'http://localhost:3000'
 ];
 
 // Create session middleware
@@ -86,7 +85,7 @@ app.use('/uploads', express.static(uploadsDir));
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: "http://3.141.200.115.xip.io/auth/google/callback"
+    callbackURL: "http://localhost:3000/auth/google/callback"
   },
   function(accessToken, refreshToken, profile, cb) {
     const user = {
@@ -115,8 +114,8 @@ app.get('/auth/google',
 
 app.get('/auth/google/callback', 
   passport.authenticate('google', { 
-    failureRedirect: 'http://3.141.200.115.xip.io/login',
-    successRedirect: 'http://3.141.200.115.xip.io'
+    failureRedirect: 'http://localhost:5173/login',
+    successRedirect: 'http://localhost:5173'
   })
 );
 

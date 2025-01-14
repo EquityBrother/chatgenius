@@ -32,7 +32,7 @@ const App = () => {
 
   useEffect(() => {
     console.log('Starting auth check...');
-    fetch('http://3.141.200.115/auth/user', {
+    fetch('http://localhost:3000/auth/user', {
       credentials: 'include'
     })
       .then(res => {
@@ -65,10 +65,10 @@ const App = () => {
 
   const initializeSocket = (currentUser) => {
     console.log('Initializing socket connection with user:', currentUser);
-    socketRef.current = io('http://3.141.200.115', {
-  withCredentials: true,
-  transports: ['websocket', 'polling']
-});
+    socketRef.current = io('http://localhost:3000', {
+      withCredentials: true,
+      transports: ['websocket', 'polling']
+    });
 
     socketRef.current.on('connect', () => {
       console.log('Socket connected successfully');
@@ -141,7 +141,7 @@ const App = () => {
   const handleGuestLogin = async () => {
     if (guestName.trim()) {
       try {
-        const response = await fetch('http://3.141.200.115/auth/guest', {
+        const response = await fetch('http://localhost:3000/auth/guest', {
           method: 'POST',
           credentials: 'include',
           headers: {
@@ -162,9 +162,10 @@ const App = () => {
     }
   };
 
+
   const handleLogout = async () => {
     try {
-      await fetch('http://3.141.200.115/auth/logout', {
+      await fetch('http://localhost:3000/auth/logout', {
         method: 'POST',
         credentials: 'include'
       });
@@ -224,10 +225,8 @@ const App = () => {
 
   const handleSearchResult = (result) => {
     if (result.file) {
-      // Handle file result
-      window.open(`http://3.141.200.115${result.file.url}`, '_blank');
+      window.open(`http://localhost:3000${result.file.url}`, '_blank');
     } else {
-      // Handle message result
       const messageElement = document.getElementById(`message-${result.id}`);
       if (messageElement) {
         messageElement.scrollIntoView({ behavior: 'smooth' });
@@ -238,7 +237,6 @@ const App = () => {
       }
     }
   };
-
 
   const EmojiPicker = ({ messageId }) => (
     <div className="absolute bottom-full mb-2 bg-white rounded-lg shadow-lg border p-2 flex gap-1">
@@ -286,7 +284,7 @@ const App = () => {
             </div>
           </div>
           <a
-            href={`http://3.141.200.115${file.url}`}
+            href={`http://localhost:3000${file.url}`}
             target="_blank"
             rel="noopener noreferrer"
             className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
@@ -296,7 +294,7 @@ const App = () => {
         </div>
         {isImage && (
           <img
-            src={`http://3.141.200.115${file.url}`}
+            src={`http://localhost:3000${file.url}`}
             alt={file.name}
             className="mt-2 max-w-sm rounded"
           />
@@ -346,7 +344,7 @@ const App = () => {
             ) : (
               <>
                 <a
-                  href="http://3.141.200.115/auth/google"
+                  href="http://localhost:3000/auth/google"
                   className="w-full flex items-center justify-center bg-white hover:bg-gray-50 text-gray-800 font-semibold py-2 px-4 border border-gray-300 rounded shadow-sm"
                 >
                   <img
@@ -547,8 +545,7 @@ const App = () => {
                 <button
                   type="button"
                   onClick={() => setSelectedFile(null)}
-                  className="text-gray-500 hover:text-gray-700"
-                >
+                  className="text-gray-500 hover:text-gray-700">
                   <X className="w-4 h-4" />
                 </button>
               </div>
