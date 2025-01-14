@@ -11,6 +11,7 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
+import ragService from './services/rag-service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -80,6 +81,17 @@ app.use(passport.session());
 
 // Serve uploaded files
 app.use('/uploads', express.static(uploadsDir));
+
+// Initialize RAG service
+(async () => {
+  try {
+    await ragService.initialize();
+    console.log('RAG service initialized successfully');
+  } catch (error) {
+    console.error('Failed to initialize RAG service:', error);
+    // Continue server startup even if RAG fails
+  }
+})();
 
 // Passport configuration
 passport.use(new GoogleStrategy({
@@ -200,6 +212,7 @@ const searchFiles = (term) => {
   return results.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 };
 
+
 // Socket.IO connection handling
 const connectedUsers = new Map();
 
@@ -239,10 +252,8 @@ io.on('connection', (socket) => {
       const fileName = `${fileId}-${fileData.name}`;
       const filePath = path.join(uploadsDir, fileName);
       
-      // Save file to disk
       fs.writeFileSync(filePath, base64Data, { encoding: 'base64' });
       
-      // Store file metadata
       const fileMetadata = {
         id: fileId,
         name: fileData.name,
@@ -257,10 +268,8 @@ io.on('connection', (socket) => {
       files.set(fileId, fileMetadata);
       addToFileIndex(fileMetadata);
 
-      // Emit file upload complete event
       socket.emit('file-upload-complete', fileMetadata);
 
-      // Create a message for the file share
       const fileMessage = {
         id: uuidv4(),
         content: `Shared a file: ${fileData.name}`,
@@ -298,20 +307,65 @@ io.on('connection', (socket) => {
   });
 
   // Handle messages
-  socket.on('message', (messageData) => {
-    const messageWithId = {
-      ...messageData,
-      id: uuidv4(),
-      reactions: {},
-      thread: {
-        replies: [],
-        replyCount: 0
+  socket.on('message', async (messageData) => {
+    try {
+      const messageWithId = {
+        ...messageData,
+        id: uuidv4(),
+        reactions: {},
+        thread: {
+          replies: [],
+          replyCount: 0
+        }
+      };
+      
+      messages.push(messageWithId);
+      addToMessageIndex(messageWithId);
+      io.emit('message', messageWithId);
+
+      // Try to add to RAG service, but don't block on it
+      try {
+        await ragService.addMessage(messageWithId);
+      } catch (error) {
+        console.error('Failed to add message to RAG service:', error);
       }
-    };
-    
-    messages.push(messageWithId);
-    addToMessageIndex(messageWithId);
-    io.emit('message', messageWithId);
+    } catch (error) {
+      console.error('Error processing message:', error);
+      socket.emit('error', { message: 'Failed to process message' });
+    }
+  });
+
+  // Handle AI messages
+  socket.on('ai-message', async ({ content, userId }) => {
+    try {
+      let relevantMessages = [];
+      let aiResponse;
+
+      try {
+        // Only try to use RAG if it's initialized
+        if (ragService.initialized) {
+          relevantMessages = await ragService.searchMessages(content);
+          aiResponse = await ragService.generateAIResponse(content, relevantMessages);
+        } else {
+          throw new Error('RAG service not initialized');
+        }
+      } catch (error) {
+        console.error('RAG service error:', error);
+        aiResponse = {
+          content: "I apologize, but I'm having trouble accessing my knowledge base. Please try again later.",
+          timestamp: new Date().toISOString()
+        };
+      }
+      
+      socket.emit('ai-response', aiResponse);
+      
+    } catch (error) {
+      console.error('Error processing AI message:', error);
+      socket.emit('ai-response', {
+        content: "I apologize, but I encountered an error processing your request.",
+        timestamp: new Date().toISOString()
+      });
+    }
   });
 
   // Handle direct messages
@@ -325,7 +379,6 @@ io.on('connection', (socket) => {
     
     directMessages.get(dmKey).push(messageData);
     
-    // Find recipient's socket and send them the message
     const recipientSocket = Array.from(connectedUsers.entries())
       .find(([_, user]) => user.id === to)?.[0];
       
@@ -333,7 +386,6 @@ io.on('connection', (socket) => {
       io.to(recipientSocket).emit('direct-message', messageData);
     }
     
-    // Send back to sender
     socket.emit('direct-message', messageData);
   });
   
@@ -439,13 +491,11 @@ process.on('SIGTERM', () => {
 // Error handling for uncaught exceptions
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
-  // Perform any necessary cleanup
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  // Application specific logging, throwing an error, or other logic here
 });
 
 // Start server with error handling

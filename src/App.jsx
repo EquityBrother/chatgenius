@@ -4,7 +4,9 @@ import ThreadPanel from './components/ThreadPanel';
 import DirectMessagePanel from './components/DirectMessagePanel';
 import FileUploader from './components/FileUploader';
 import SearchComponent from './components/SearchComponent';
-import { MessageSquare, File, Search as SearchIcon, X } from 'lucide-react';
+import AIChannel from './components/AIChannel';
+import ChannelSidebar from './components/ChannelSidebar';
+import { MessageSquare, File, Search as SearchIcon, X, Bot } from 'lucide-react';
 
 // Common emoji reactions
 const commonEmojis = ['👍', '❤️', '😂', '🎉', '🤔', '😢'];
@@ -21,10 +23,14 @@ const App = () => {
   const [activeThread, setActiveThread] = useState(null);
   const [showDMs, setShowDMs] = useState(false);
   const [showFileUploader, setShowFileUploader] = useState(false);
+  // Add this line
+  const [activeChannel, setActiveChannel] = useState({ id: 'main', name: 'Main Channel' });
   const [selectedFile, setSelectedFile] = useState(null);
+  // const [activeChannel, setActiveChannel] = useState(null);
+  const [channels, setChannels] = useState([]);
+  const [directMessages, setDirectMessages] = useState([]);
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
-  const fileInputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -162,7 +168,6 @@ const App = () => {
     }
   };
 
-
   const handleLogout = async () => {
     try {
       await fetch('http://localhost:3000/auth/logout', {
@@ -181,9 +186,16 @@ const App = () => {
       setGuestName('');
       setActiveThread(null);
       setShowDMs(false);
+      setActiveChannel(null);
     } catch (error) {
       console.error('Error logging out:', error);
     }
+  };
+
+  const handleChannelSelect = (channel) => {
+    setActiveChannel(channel);
+    setActiveThread(null);
+    setShowDMs(false);
   };
 
   const sendMessage = (e) => {
@@ -202,7 +214,17 @@ const App = () => {
       setShowFileUploader(false);
     }
   };
-
+  const handleSearchResult = (result) => {
+    // If the result is a message, scroll to it
+    if (result.id) {
+      const element = document.getElementById(`message-${result.id}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth' });
+        element.classList.add('highlight');
+        setTimeout(() => element.classList.remove('highlight'), 2000);
+      }
+    }
+  };
   const handleReaction = (messageId, emoji) => {
     const message = messages.find(m => m.id === messageId);
     const hasReacted = message.reactions[emoji]?.includes(user.id);
@@ -221,21 +243,6 @@ const App = () => {
       });
     }
     setShowEmojiPicker(null);
-  };
-
-  const handleSearchResult = (result) => {
-    if (result.file) {
-      window.open(`http://localhost:3000${result.file.url}`, '_blank');
-    } else {
-      const messageElement = document.getElementById(`message-${result.id}`);
-      if (messageElement) {
-        messageElement.scrollIntoView({ behavior: 'smooth' });
-        messageElement.classList.add('highlight');
-        setTimeout(() => {
-          messageElement.classList.remove('highlight');
-        }, 2000);
-      }
-    }
   };
 
   const EmojiPicker = ({ messageId }) => (
@@ -379,204 +386,179 @@ const App = () => {
   return (
     <div className="h-screen flex">
       {/* Sidebar */}
-      <div className="w-64 bg-gray-800 text-white flex flex-col">
-        <div className="p-4 border-b border-gray-700">
-          <h2 className="text-xl font-bold">ChatGenius</h2>
-          <p className="text-sm text-gray-400">{onlineUsers.length} online</p>
-        </div>
+      <ChannelSidebar
+        channels={channels}
+        directMessages={directMessages}
+        activeChannel={activeChannel}
+        onChannelSelect={(channel) => {
+          console.log('Selecting channel:', channel); // Add this debug log
+          setActiveChannel(channel);
+          setActiveThread(null);
+          setShowDMs(false);
+        }}
+        onCreateChannel={() => {/* handle channel creation */}}
+        onCreateDM={() => setShowDMs(true)}
+        currentUser={user}
+      />
 
-        {/* Online Users */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-4">
-            <div className="text-gray-400 text-sm mb-2">Online Users</div>
-            {onlineUsers.map((onlineUser) => (
-              <div
-                key={onlineUser.id}
-                className="flex items-center space-x-2 px-2 py-1 rounded hover:bg-gray-700 cursor-pointer"
-                onClick={() => {
-                  if (onlineUser.id !== user.id) {
-                    setShowDMs(true);
-                    setActiveThread(null);
-                  }
-                }}
-              >
-                <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                <span>
-                  {onlineUser.id === user.id ? `${onlineUser.name} (you)` : onlineUser.name}
-                </span>
-              </div>
-            ))}
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col">
+        <div className={`flex-1 flex flex-col ${(activeThread || showDMs) ? 'hidden md:flex' : 'flex'}`}>
+          <div className="bg-white border-b px-4 py-2 shadow-sm flex items-center justify-between">
+            <h2 className="text-xl font-bold">
+              {activeChannel?.id === 'ai-assistant' ? 'AI Assistant' : 'Main Channel'}
+            </h2>
+            <SearchComponent
+              socketRef={socketRef}
+              onResultClick={handleSearchResult}
+            />
           </div>
-        </div>
 
-        {/* User Profile */}
-        <div className="p-4 border-t border-gray-700">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              {user.avatar && (
-                <img src={user.avatar} alt="Profile" className="w-8 h-8 rounded-full" />
-              )}
-              <span className="text-sm font-medium">{user.name}</span>
-            </div>
-            <button 
-              onClick={handleLogout}
-              className="text-gray-400 hover:text-white"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Chat Area */}
-      <div className={`flex-1 flex flex-col ${(activeThread || showDMs) ? 'hidden md:flex' : 'flex'}`}>
-        <div className="bg-white border-b px-4 py-2 shadow-sm flex items-center justify-between">
-          <h2 className="text-xl font-bold">Main Channel</h2>
-          <SearchComponent
-            socketRef={socketRef}
-            onResultClick={handleSearchResult}
-          />
-        </div>
-
-        <div className="flex-1 bg-white p-4 overflow-hidden flex flex-col">
-          <div className="flex-1 overflow-y-auto mb-4 space-y-4">
-            {messages.map((message, index) => (
-              <div
-                key={index}
-                id={`message-${message.id}`}
-                className={`flex ${message.sender.id === user.id ? 'justify-end' : 'justify-start'}`}
-              >
-                <div className="relative group">
+          {activeChannel?.id === 'ai-assistant' ? (
+            <AIChannel user={user} socketRef={socketRef} />
+          ) : (
+            <div className="flex-1 bg-white p-4 overflow-hidden flex flex-col">
+              <div className="flex-1 overflow-y-auto mb-4 space-y-4">
+                {messages.map((message, index) => (
                   <div
-                    className={`max-w-[70%] rounded-lg p-3 ${
-                      message.sender.id === user.id
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-gray-100'
-                    }`}
+                    key={index}
+                    id={`message-${message.id}`}
+                    className={`flex ${message.sender.id === user.id ? 'justify-end' : 'justify-start'}`}
                   >
-                    <div className="flex items-center space-x-2 mb-1">
-                      {message.sender.avatar && (
-                        <img 
-                          src={message.sender.avatar} 
-                          alt="Avatar" 
-                          className="w-6 h-6 rounded-full"
-                        />
-                      )}
-                      <div className="text-sm font-semibold">
-                        {message.sender.id === user.id ? 'You' : message.sender.name}
-                      </div>
-                    </div>
-                    <div>{message.content}</div>
-                    {message.file && <FileAttachment file={message.file} />}
-                    <div className="text-xs opacity-70 mt-1">
-                      {new Date(message.timestamp).toLocaleTimeString()}
-                    </div>
-                    <div className="mt-1 flex items-center space-x-2">
-                      <MessageReactions messageId={message.id} reactions={message.reactions} />
-                      <button
-                        onClick={() => setActiveThread(message.id)}
-                        className="text-sm hover:underline"
+                    <div className="relative group">
+                      <div
+                        className={`max-w-[70%] rounded-lg p-3 ${
+                          message.sender.id === user.id
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-100'
+                        }`}
                       >
-                        {message.thread?.replyCount 
-                          ? `${message.thread.replyCount} ${message.thread.replyCount === 1 ? 'reply' : 'replies'}` 
-                          : 'Reply in thread'}
+                        <div className="flex items-center space-x-2 mb-1">
+                          {message.sender.avatar && (
+                            <img 
+                              src={message.sender.avatar} 
+                              alt="Avatar" 
+                              className="w-6 h-6 rounded-full"
+                            />
+                          )}
+                          <div className="text-sm font-semibold">
+                            {message.sender.id === user.id ? 'You' : message.sender.name}
+                          </div>
+                        </div>
+                        <div>{message.content}</div>
+                        {message.file && <FileAttachment file={message.file} />}
+                        <div className="text-xs opacity-70 mt-1">
+                          {new Date(message.timestamp).toLocaleTimeString()}
+                        </div>
+                        <div className="mt-1 flex items-center space-x-2">
+                          <MessageReactions messageId={message.id} reactions={message.reactions} />
+                          <button
+                            onClick={() => setActiveThread(message.id)}
+                            className="text-sm hover:underline"
+                          >
+                            {message.thread?.replyCount 
+                              ? `${message.thread.replyCount} ${message.thread.replyCount === 1 ? 'reply' : 'replies'}` 
+                              : 'Reply in thread'}
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <button
+                        onClick={() => setShowEmojiPicker(showEmojiPicker === message.id ? null : message.id)}
+                        className="absolute -right-10 top-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-100 rounded"
+                      >
+                        😀
                       </button>
+                      
+                      {showEmojiPicker === message.id && (
+                        <EmojiPicker messageId={message.id} />
+                      )}
                     </div>
                   </div>
-                  
-                  <button
-                    onClick={() => setShowEmojiPicker(showEmojiPicker === message.id ? null : message.id)}
-                    className="absolute -right-10 top-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-100 rounded"
-                  >
-                    😀
-                  </button>
-                  
-                  {showEmojiPicker === message.id && (
-                    <EmojiPicker messageId={message.id} />
-                  )}
-                </div>
+                ))}
+                <div ref={messagesEndRef} />
               </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
 
-          {showFileUploader && (
-            <div className="mb-4">
-              <FileUploader
-                onUpload={(file) => {
-                  setSelectedFile(file);
-                  setShowFileUploader(false);
-                }}
-                socketRef={socketRef}
-                user={user}
-              />
+              {showFileUploader && (
+                <div className="mb-4">
+                  <FileUploader
+                    onUpload={(file) => {
+                      setSelectedFile(file);
+                      setShowFileUploader(false);
+                    }}
+                    socketRef={socketRef}
+                    user={user}
+                  />
+                </div>
+              )}
+
+              <form onSubmit={sendMessage} className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowFileUploader(!showFileUploader)}
+                    className="p-2 text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-100"
+                  >
+                    <File className="w-5 h-5" />
+                  </button>
+                  <input
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder="Type a message..."
+                    className="flex-1 px-3 py-2 border rounded-md"
+                  />
+                  <button 
+                    type="submit" 
+                    disabled={!newMessage.trim() && !selectedFile}
+                    className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+                  >
+                    Send
+                  </button>
+                </div>
+                {selectedFile && (
+                  <div className="flex items-center justify-between bg-gray-50 p-2 rounded">
+                    <div className="flex items-center space-x-2">
+                      <File className="w-4 h-4 text-gray-500" />
+                      <span className="text-sm truncate">{selectedFile.name}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFile(null)}
+                      className="text-gray-500 hover:text-gray-700"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </form>
             </div>
           )}
-
-          <form onSubmit={sendMessage} className="space-y-2">
-            <div className="flex items-center space-x-2">
-              <button
-                type="button"
-                onClick={() => setShowFileUploader(!showFileUploader)}
-                className="p-2 text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-100"
-              >
-                <File className="w-5 h-5" />
-              </button>
-              <input
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="Type a message..."
-                className="flex-1 px-3 py-2 border rounded-md"
-              />
-              <button 
-                type="submit" 
-                disabled={!newMessage.trim() && !selectedFile}
-                className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
-              >
-                Send
-              </button>
-            </div>
-            {selectedFile && (
-              <div className="flex items-center justify-between bg-gray-50 p-2 rounded">
-                <div className="flex items-center space-x-2">
-                  <File className="w-4 h-4 text-gray-500" />
-                  <span className="text-sm truncate">{selectedFile.name}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedFile(null)}
-                  className="text-gray-500 hover:text-gray-700">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-          </form>
         </div>
+
+        {/* Thread Panel */}
+        {activeThread && (
+          <div className="w-full md:w-96 border-l flex flex-col">
+            <ThreadPanel
+              message={messages.find(m => m.id === activeThread)}
+              onClose={() => setActiveThread(null)}
+              user={user}
+              socketRef={socketRef}
+            />
+          </div>
+        )}
+
+        {/* Direct Messages Panel */}
+        {showDMs && (
+          <div className="w-full md:w-96 border-l flex flex-col">
+            <DirectMessagePanel
+              user={user}
+              onlineUsers={onlineUsers}
+              socketRef={socketRef}
+              onClose={() => setShowDMs(false)}
+            />
+          </div>
+        )}
       </div>
-
-      {/* Thread Panel */}
-      {activeThread && (
-        <div className="w-full md:w-96 border-l flex flex-col">
-          <ThreadPanel
-            message={messages.find(m => m.id === activeThread)}
-            onClose={() => setActiveThread(null)}
-            user={user}
-            socketRef={socketRef}
-          />
-        </div>
-      )}
-
-      {/* Direct Messages Panel */}
-      {showDMs && (
-        <div className="w-full md:w-96 border-l flex flex-col">
-          <DirectMessagePanel
-            user={user}
-            onlineUsers={onlineUsers}
-            socketRef={socketRef}
-            onClose={() => setShowDMs(false)}
-          />
-        </div>
-      )}
     </div>
   );
 };
