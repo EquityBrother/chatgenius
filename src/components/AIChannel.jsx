@@ -1,5 +1,7 @@
+// components/AIChannel.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import { Bot, Send } from 'lucide-react';
+import aiChatService from '../services/ai-chat-service';
 
 const AIChannel = ({ user, socketRef }) => {
   const [messages, setMessages] = useState([]);
@@ -18,7 +20,7 @@ const AIChannel = ({ user, socketRef }) => {
       setMessages(prev => [...prev, {
         type: 'ai',
         content: response.content,
-        timestamp: new Date().toISOString()
+        timestamp: response.timestamp
       }]);
       setIsLoading(false);
     });
@@ -47,10 +49,34 @@ const AIChannel = ({ user, socketRef }) => {
     setInput('');
     setIsLoading(true);
 
-    socketRef.current.emit('ai-message', {
-      content: input,
-      userId: user.id
-    });
+    try {
+      // Store user message in ChromaDB
+      await aiChatService.addMessageToHistory({
+        id: `user-${Date.now()}`,
+        content: input,
+        sender: user,
+        timestamp: new Date().toISOString()
+      });
+
+      // Generate AI response
+      const aiResponse = await aiChatService.generateResponse(input, user.id);
+      
+      // Update messages with AI response
+      setMessages(prev => [...prev, {
+        type: 'ai',
+        content: aiResponse.content,
+        timestamp: aiResponse.timestamp
+      }]);
+    } catch (error) {
+      console.error('Error in AI chat:', error);
+      setMessages(prev => [...prev, {
+        type: 'ai',
+        content: 'I apologize, but I encountered an error. Please try again.',
+        timestamp: new Date().toISOString()
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -62,7 +88,7 @@ const AIChannel = ({ user, socketRef }) => {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         <div className="bg-blue-50 rounded-lg p-4 text-sm">
-          👋 Hi! I'm your AI assistant. I can help answer questions about chat history and provide general assistance.
+          👋 Hi! I'm your AI assistant. I can help answer questions and reference our chat history to provide context-aware responses.
         </div>
 
         {messages.map((message, index) => (
@@ -96,7 +122,7 @@ const AIChannel = ({ user, socketRef }) => {
                   </>
                 )}
               </div>
-              <div>{message.content}</div>
+              <div className="whitespace-pre-wrap">{message.content}</div>
               <div className="text-xs opacity-70 mt-1">
                 {new Date(message.timestamp).toLocaleTimeString()}
               </div>

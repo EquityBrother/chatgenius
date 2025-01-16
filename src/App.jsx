@@ -27,8 +27,9 @@ const App = () => {
   const [activeChannel, setActiveChannel] = useState({ id: 'main', name: 'Main Channel' });
   const [selectedFile, setSelectedFile] = useState(null);
   // const [activeChannel, setActiveChannel] = useState(null);
-  const [channels, setChannels] = useState([]);
-  const [directMessages, setDirectMessages] = useState([]);
+  const [channels, setChannels] = useState([
+    { id: 'main', name: 'Main Channel' }
+  ]);  const [directMessages, setDirectMessages] = useState([]);
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
 

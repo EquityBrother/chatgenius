@@ -12,6 +12,12 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import ragService from './services/rag-service.js';
+import OpenAI from 'openai';
+
+
+const openai = new OpenAI({
+  apiKey: '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'
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -23,6 +29,8 @@ const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
+
+const aiConversations = new Map();
 
 const app = express();
 const httpServer = createServer(app);
@@ -233,6 +241,8 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
   const user = socket.request.session.passport.user;
+  aiConversations.set(socket.id, []);
+
 
   // Send existing messages to newly connected users
   socket.emit('initialize-messages', messages);
@@ -290,6 +300,50 @@ io.on('connection', (socket) => {
     } catch (error) {
       console.error('File upload error:', error);
       socket.emit('file-upload-error', { error: 'Failed to upload file' });
+    }
+  });
+
+  socket.on('ai-message', async ({ content, userId }) => {
+    try {
+      // Get or create the conversation for this socket
+      const conversation = aiConversations.get(socket.id) || [];
+
+      // Push the user's new question
+      conversation.push({ role: 'user', content });
+
+      // Define a system prompt to give the AI a persona
+      const systemPrompt = {
+        role: 'system',
+        content: 'You are a helpful, friendly AI assistant.'
+      };
+
+      // Combine system + conversation so far
+      const messagesForGPT = [systemPrompt, ...conversation];
+
+      // Call GPT-4 (or GPT-3.5, etc.)
+      const response = await openai.createChatCompletion({
+        model: 'gpt-4',
+        messages: messagesForGPT,
+      });
+
+      // Extract assistant message
+      const assistantReply = response.data.choices[0].message?.content || '';
+
+      // Append assistant reply to conversation
+      conversation.push({ role: 'assistant', content: assistantReply });
+      aiConversations.set(socket.id, conversation);
+
+      // Send back to client
+      socket.emit('ai-response', {
+        content: assistantReply,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('OpenAI error:', error);
+      socket.emit('ai-response', {
+        content: "Sorry, I'm having trouble right now.",
+        timestamp: new Date().toISOString()
+      });
     }
   });
 
