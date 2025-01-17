@@ -5,6 +5,8 @@ import DirectMessagePanel from './components/DirectMessagePanel';
 import FileUploader from './components/FileUploader';
 import SearchComponent from './components/SearchComponent';
 import { MessageSquare, File, Search as SearchIcon, X } from 'lucide-react';
+import BotPersona from './components/BotPersona';
+import { Bot } from 'lucide-react';
 
 // Common emoji reactions
 const commonEmojis = ['👍', '❤️', '😂', '🎉', '🤔', '😢'];
@@ -16,6 +18,7 @@ const App = () => {
   const [newMessage, setNewMessage] = useState('');
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(null);
+  const [showBotConfig, setShowBotConfig] = useState(false);
   const [showGuestInput, setShowGuestInput] = useState(false);
   const [guestName, setGuestName] = useState('');
   const [activeThread, setActiveThread] = useState(null);
@@ -140,7 +143,6 @@ const App = () => {
       }
     };
   };
-
   const handleGuestLogin = async () => {
     if (guestName.trim()) {
       try {
@@ -227,10 +229,8 @@ const App = () => {
 
   const handleSearchResult = (result) => {
     if (result.file) {
-      // Handle file result
       window.open(`http://localhost:3000${result.file.url}`, '_blank');
     } else {
-      // Handle message result
       const messageElement = document.getElementById(`message-${result.id}`);
       if (messageElement) {
         messageElement.scrollIntoView({ behavior: 'smooth' });
@@ -287,8 +287,8 @@ const App = () => {
               {(file.size / 1024).toFixed(1)} KB
             </div>
           </div>
-          <a
-            href={`http://localhost:3000${file.url}`}
+          
+           <a href="http://localhost:3000/auth/google"
             target="_blank"
             rel="noopener noreferrer"
             className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
@@ -347,8 +347,8 @@ const App = () => {
               </div>
             ) : (
               <>
-                <a
-                  href="http://localhost:3000/auth/google"
+                
+                <a href={`http://localhost:3000${file.url}`}
                   className="w-full flex items-center justify-center bg-white hover:bg-gray-50 text-gray-800 font-semibold py-2 px-4 border border-gray-300 rounded shadow-sm"
                 >
                   <img
@@ -415,7 +415,7 @@ const App = () => {
 
         {/* User Profile */}
         <div className="p-4 border-t border-gray-700">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center space-x-2">
               {user.avatar && (
                 <img src={user.avatar} alt="Profile" className="w-8 h-8 rounded-full" />
@@ -429,6 +429,13 @@ const App = () => {
               Logout
             </button>
           </div>
+          <button
+            onClick={() => setShowBotConfig(true)}
+            className="w-full flex items-center space-x-2 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-700"
+          >
+            <Bot className="w-4 h-4" />
+            <span>Configure Bot</span>
+          </button>
         </div>
       </div>
 
@@ -535,8 +542,7 @@ const App = () => {
               <button 
                 type="submit" 
                 disabled={!newMessage.trim() && !selectedFile}
-                className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
-              >
+                className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50">
                 Send
               </button>
             </div>
@@ -580,6 +586,19 @@ const App = () => {
             socketRef={socketRef}
             onClose={() => setShowDMs(false)}
           />
+        </div>
+      )}
+
+      {/* Bot Configuration Modal */}
+      {showBotConfig && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-md">
+            <BotPersona
+              user={user}
+              socketRef={socketRef}
+              onClose={() => setShowBotConfig(false)}
+            />
+          </div>
         </div>
       )}
     </div>

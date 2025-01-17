@@ -32,7 +32,37 @@ const files = new Map(); // Store file metadata
 const messageIndex = new Map(); // Search index for messages
 const fileIndex = new Map(); // Search index for files
 const messages = []; // Store messages
+const botConfigs = new Map(); // Store bot configurations
 
+
+
+
+const handleBotResponse = (message, recipient) => {
+  const botConfig = botConfigs.get(recipient.id);
+  
+  if (!botConfig || !botConfig.isEnabled) return null;
+  
+  const { persona } = botConfig;
+  
+  // Check if message contains any keywords
+  const hasKeyword = persona.keywords.some(keyword => 
+    message.content.toLowerCase().includes(keyword.toLowerCase())
+  );
+  
+  if (hasKeyword || persona.keywords.length === 0) {
+    return {
+      content: persona.autoReply,
+      sender: {
+        id: `bot_${recipient.id}`,
+        name: persona.name,
+        isBot: true
+      },
+      timestamp: new Date().toISOString()
+    };
+  }
+  
+  return null;
+};
 // Create session middleware
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
@@ -223,6 +253,24 @@ io.on('connection', (socket) => {
     user,
     onlineUsers: Array.from(connectedUsers.values())
   });
+  socket.on('get-bot-config', ({ userId }) => {
+    const config = botConfigs.get(userId) || {
+      userId,
+      isEnabled: false,
+      persona: {
+        name: `${socket.request.session.passport.user.name}'s Bot`,
+        style: 'professional',
+        autoReply: 'I am currently away but will respond when I return.',
+        keywords: []
+      }
+    };
+    socket.emit('bot-config-updated', config);
+  });
+
+  socket.on('update-bot-config', (config) => {
+    botConfigs.set(config.userId, config);
+    io.emit('bot-config-updated', config);
+  });
 
   // Handle file uploads
   socket.on('file-upload', async ({ fileData, file }) => {
@@ -318,12 +366,21 @@ io.on('connection', (socket) => {
     
     directMessages.get(dmKey).push(messageData);
     
-    // Find recipient's socket and send them the message
-    const recipientSocket = Array.from(connectedUsers.entries())
-      .find(([_, user]) => user.id === to)?.[0];
+    // Find recipient's socket and user
+    const recipientEntry = Array.from(connectedUsers.entries())
+      .find(([_, user]) => user.id === to);
+    const recipientSocket = recipientEntry?.[0];
+    const recipientUser = recipientEntry?.[1];
       
     if (recipientSocket) {
       io.to(recipientSocket).emit('direct-message', messageData);
+    } else if (recipientUser) {
+      // If user is offline, check for bot response
+      const botResponse = handleBotResponse(messageData, recipientUser);
+      if (botResponse) {
+        directMessages.get(dmKey).push(botResponse);
+        socket.emit('direct-message', botResponse);
+      }
     }
     
     // Send back to sender
